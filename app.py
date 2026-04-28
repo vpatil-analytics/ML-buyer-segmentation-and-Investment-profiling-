@@ -2,63 +2,18 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# ─── PAGE CONFIG ─────────────────────────────
+# ─────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Real Estate CRM Dashboard",
     page_icon="🏢",
     layout="wide"
 )
 
-# ─── PREMIUM DARK UI ─────────────────────────
-st.markdown("""
-<style>
-.stApp {
-    background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
-}
-[data-testid="stSidebar"] {
-    background: #020617;
-    border-right: 1px solid #1e293b;
-}
-[data-testid="stMetric"] {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    border: 1px solid #334155;
-    border-radius: 12px;
-    padding: 15px;
-}
-[data-testid="stMetricValue"] {
-    color: #e0f2fe;
-    font-weight: 700;
-}
-[data-testid="stMetricLabel"] {
-    color: #94a3b8;
-}
-h1, h2, h3 {
-    color: #e2e8f0;
-}
-.stDownloadButton button {
-    background: linear-gradient(90deg, #2563eb, #7c3aed);
-    color: white;
-    border-radius: 8px;
-    border: none;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ─── COLOR PALETTE ───────────────────────────
-COLORS = ["#2563eb", "#7c3aed", "#059669", "#f59e0b", "#ef4444"]
-
-def style_fig(fig):
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#cbd5e1"),
-        margin=dict(l=10, r=10, t=40, b=10)
-    )
-    fig.update_xaxes(gridcolor="#1e293b")
-    fig.update_yaxes(gridcolor="#1e293b")
-    return fig
-
-# ─── LOAD DATA ───────────────────────────────
+# ─────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────
 @st.cache_data
 def load_data():
     try:
@@ -69,35 +24,63 @@ def load_data():
 
     df.columns = df.columns.str.strip()
 
+    # Clean strings
+    for col in df.select_dtypes(include="object"):
+        df[col] = df[col].str.strip()
+
+    # Format
+    if "country" in df:
+        df["country"] = df["country"].str.title()
+
+    # Numeric fixes
     num_cols = ["sale_price", "floor_area_sqft", "engagement_score"]
     for col in num_cols:
-        if col in df.columns:
+        if col in df:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # Clip values
+    if "satisfaction_score" in df:
+        df["satisfaction_score"] = df["satisfaction_score"].clip(1, 5)
+
+    if "engagement_score" in df:
+        df["engagement_score"] = df["engagement_score"].clip(0, 100)
+
+    if "investment_score" in df:
+        df["investment_score"] = df["investment_score"].clip(0, 1)
+
+    if "sale_price" in df:
+        df["sale_price"] = df["sale_price"].clip(lower=0)
+
     df = df.fillna(0)
+
     return df
+
 
 df_raw = load_data()
 
-# ─── SIDEBAR ─────────────────────────────────
+# ─────────────────────────────────────────────
+# SIDEBAR FILTERS
+# ─────────────────────────────────────────────
 st.sidebar.title("🔍 Filters")
 
-def safe(col):
+def get_options(col):
     if col in df_raw.columns:
         return ["All"] + sorted(df_raw[col].unique())
     return ["All"]
 
-country = st.sidebar.selectbox("Country", safe("country"))
-segment = st.sidebar.selectbox("Segment", safe("segment"))
+country = st.sidebar.selectbox("Country", get_options("country"))
+segment = st.sidebar.selectbox("Segment", get_options("segment"))
 
 if "sale_price" in df_raw.columns:
     min_p = int(df_raw["sale_price"].min())
     max_p = int(df_raw["sale_price"].max())
-    price = st.sidebar.slider("Price Range", min_p, max_p, (min_p, max_p))
+    price_range = st.sidebar.slider("Price Range", min_p, max_p, (min_p, max_p))
 else:
-    price = (0, 0)
+    price_range = (0, 0)
 
-# ─── FILTER DATA ─────────────────────────────
+# ─────────────────────────────────────────────
+# FILTER DATA
+# ─────────────────────────────────────────────
 df = df_raw.copy()
 
 if country != "All" and "country" in df:
@@ -107,105 +90,106 @@ if segment != "All" and "segment" in df:
     df = df[df["segment"] == segment]
 
 if "sale_price" in df:
-    df = df[(df["sale_price"] >= price[0]) & (df["sale_price"] <= price[1])]
+    df = df[(df["sale_price"] >= price_range[0]) &
+            (df["sale_price"] <= price_range[1])]
 
 if df.empty:
-    st.warning("⚠️ No data found")
+    st.warning("⚠️ No data found for selected filters")
     st.stop()
 
-# ─── HEADER ──────────────────────────────────
-st.markdown("""
-<h1 style='
-    background: linear-gradient(90deg,#2563eb,#7c3aed);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-size:36px;
-    font-weight:800;
-'>
-🏢 Real Estate CRM Intelligence Dashboard
-</h1>
-""", unsafe_allow_html=True)
-
+# ─────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────
+st.title("🏢 Real Estate CRM Dashboard")
 st.caption(f"Showing {len(df):,} records")
 
-# ─── KPIs ───────────────────────────────────
-c1, c2, c3, c4 = st.columns(4)
+# ─────────────────────────────────────────────
+# KPI SECTION
+# ─────────────────────────────────────────────
+col1, col2, col3, col4 = st.columns(4)
 
-total_rev = df["sale_price"].sum()
-avg_price = df["sale_price"].mean()
+total_revenue = df["sale_price"].sum() if "sale_price" in df else 0
+avg_price = df["sale_price"].mean() if "sale_price" in df else 0
+avg_satisfaction = df["satisfaction_score"].mean() if "satisfaction_score" in df else 0
+avg_engagement = df["engagement_score"].mean() if "engagement_score" in df else 0
 
-c1.metric("Clients", len(df))
-c2.metric("Revenue", f"${total_rev:,.0f}")
-c3.metric("Avg Price", f"${avg_price:,.0f}")
+col1.metric("Total Clients", len(df))
+col2.metric("Total Revenue", f"${total_revenue:,.0f}")
+col3.metric("Avg Price", f"${avg_price:,.0f}")
+col4.metric("Satisfaction", f"{avg_satisfaction:.2f}")
 
-if "is_investor" in df:
-    c4.metric("Investors", int(df["is_investor"].sum()))
-else:
-    c4.metric("Investors", "N/A")
-
-st.markdown("---")
-
-# ─── TABS ───────────────────────────────────
+# ─────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["Overview", "Segments", "Pricing"])
 
-# ─── OVERVIEW ───────────────────────────────
+# ─────────────────────────────────────────────
+# TAB 1 - OVERVIEW
+# ─────────────────────────────────────────────
 with tab1:
     col1, col2 = st.columns(2)
 
     if "client_type" in df:
         ct = df["client_type"].value_counts().reset_index()
         ct.columns = ["Type", "Count"]
-        fig = px.pie(ct, values="Count", names="Type",
-                     color_discrete_sequence=COLORS, hole=0.5)
-        col1.plotly_chart(style_fig(fig), use_container_width=True, key="pie1")
+
+        fig = px.pie(ct, values="Count", names="Type", title="Client Type")
+        col1.plotly_chart(fig, use_container_width=True)
 
     if "referral_channel" in df:
         rc = df["referral_channel"].value_counts().reset_index()
         rc.columns = ["Channel", "Count"]
-        fig = px.pie(rc, values="Count", names="Channel",
-                     color_discrete_sequence=COLORS, hole=0.5)
-        col2.plotly_chart(style_fig(fig), use_container_width=True, key="pie2")
 
-    if "engagement_score" in df:
-        fig = px.histogram(df, x="engagement_score",
-                           color_discrete_sequence=["#3b82f6"])
-        st.plotly_chart(style_fig(fig), use_container_width=True, key="hist1")
+        fig = px.pie(rc, values="Count", names="Channel", title="Referral Channel")
+        col2.plotly_chart(fig, use_container_width=True)
 
-# ─── SEGMENTS ───────────────────────────────
+# ─────────────────────────────────────────────
+# TAB 2 - SEGMENTS
+# ─────────────────────────────────────────────
 with tab2:
     if "segment" in df:
         seg = df.groupby("segment")["sale_price"].mean().reset_index()
 
         fig = px.bar(seg, x="segment", y="sale_price",
-                     color="segment",
-                     color_discrete_sequence=COLORS,
-                     text_auto=".2s")
+                     title="Avg Sale Price by Segment",
+                     text_auto=True)
 
-        st.plotly_chart(style_fig(fig), use_container_width=True, key="bar1")
+        st.plotly_chart(fig, use_container_width=True)
 
-# ─── PRICING ────────────────────────────────
+# ─────────────────────────────────────────────
+# TAB 3 - PRICING
+# ─────────────────────────────────────────────
 with tab3:
-    col1, col2 = st.columns(2)
+    if "sale_price" in df:
+        fig = px.histogram(df, x="sale_price",
+                           title="Sale Price Distribution")
 
-    fig = px.histogram(df, x="sale_price",
-                       color_discrete_sequence=["#2563eb"])
-    col1.plotly_chart(style_fig(fig), use_container_width=True, key="hist2")
+        st.plotly_chart(fig, use_container_width=True)
 
     if "floor_area_sqft" in df:
-        fig = px.scatter(df, x="floor_area_sqft", y="sale_price",
-                         color="segment",
-                         color_discrete_sequence=COLORS,
-                         opacity=0.7)
-        col2.plotly_chart(style_fig(fig), use_container_width=True, key="scatter1")
+        fig = px.scatter(df,
+                         x="floor_area_sqft",
+                         y="sale_price",
+                         title="Area vs Price",
+                         trendline="ols")
 
-# ─── TABLE ──────────────────────────────────
+        st.plotly_chart(fig, use_container_width=True)
+
+# ─────────────────────────────────────────────
+# DATA TABLE
+# ─────────────────────────────────────────────
 st.subheader("📊 Data Preview")
 st.dataframe(df.head(100), use_container_width=True)
 
-# ─── DOWNLOAD ───────────────────────────────
+# ─────────────────────────────────────────────
+# DOWNLOAD
+# ─────────────────────────────────────────────
 csv = df.to_csv(index=False).encode("utf-8")
-st.download_button("📥 Download Data", csv, "data.csv", "text/csv")
+st.download_button("📥 Download Data", csv, "filtered_data.csv", "text/csv")
 
-# ─── FOOTER ─────────────────────────────────
+# ─────────────────────────────────────────────
+# FOOTER
+# ─────────────────────────────────────────────
 st.markdown("---")
-st.caption("Built with Streamlit | Professional Dashboard")
+st.caption("Built with Streamlit & Plotly")
+
